@@ -13,12 +13,22 @@ if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
 const db = firebase.database();
+const auth = firebase.auth();
 
 const ADMIN_ACTIVATION_CODE = "ADMIN-RICK-2026";
 const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 function emailToKey(email) {
     return email.trim().toLowerCase().replace(/[.#$\[\]\/]/g, '_');
+}
+
+function waitForAuthUser() {
+    return new Promise((resolve) => {
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+            unsubscribe();
+            resolve(user);
+        });
+    });
 }
 
 async function getCryptoKey() {
@@ -42,19 +52,6 @@ async function encryptText(plainText) {
         iv: Array.from(iv, b => b.toString(16).padStart(2, '0')).join(''),
         mode: "AES-GCM"
     };
-}
-
-async function decryptText(encryptedObj) {
-    if (!encryptedObj || !encryptedObj.cipher || !encryptedObj.iv) return null;
-    try {
-        const key = await getCryptoKey();
-        const iv = new Uint8Array(encryptedObj.iv.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-        const cipherBytes = new Uint8Array(encryptedObj.cipher.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-        const plainBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherBytes);
-        return new TextDecoder().decode(plainBuffer);
-    } catch (e) {
-        return null;
-    }
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -132,7 +129,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         passInputEl?.dispatchEvent(new Event('input'));
     });
 
-    // --- 1. СТРАНИЦА РЕГИСТРАЦИИ (register.html) ---
+    // --- 1. РЕГИСТРАЦИЯ (register.html) ---
     const registerForm = document.getElementById('registerForm');
     if (registerForm) {
         const buyToggle = document.getElementById('buyTicketToggle');
@@ -228,32 +225,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (!isValid) return;
 
-            const userKey = emailToKey(cleanEmail);
-            const existingUserSnap = await db.ref(`user_profiles/${userKey}`).once('value');
-            if (existingUserSnap.exists()) {
-                setErr('emailError', 'Пользователь с этим email уже зарегистрирован. Войдите в аккаунт.');
-                return;
-            }
-
             try {
-                const encryptedPass = await encryptText(pass1);
+                const cred = await auth.createUserWithEmailAndPassword(cleanEmail, pass1);
+                const uid = cred.user.uid;
+                const userKey = emailToKey(cleanEmail);
 
                 await db.ref(`user_profiles/${userKey}`).set({
+                    uid,
                     name: fullname,
                     email: cleanEmail,
                     phone: phone,
                     createdAt: new Date().toISOString()
                 });
 
-                await db.ref(`user_passwords/${userKey}`).set(encryptedPass);
-
                 await db.ref(`user_roles/${userKey}`).set({
+                    uid,
                     isAdmin: false
                 });
 
                 if (withTicket) {
                     const encryptedCard = await encryptText(cardClean);
                     await db.ref(`user_cards/${userKey}`).set({
+                        uid,
                         last4: cardClean.slice(-4),
                         masked: '•••• •••• •••• ' + cardClean.slice(-4),
                         encryptedCard: encryptedCard.cipher,
@@ -268,6 +261,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const newOrderRef = db.ref('orders').push();
                     await newOrderRef.set({
                         userKey,
+                        uid,
                         email: cleanEmail,
                         concertTitle: selectedConcertText,
                         ticketCategory: categoryName,
@@ -281,7 +275,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 modal.classList.add('active');
             } catch (err) {
                 console.error(err);
-                alert('Ошибка сохранения данных в базу.');
+                if (err.code === 'auth/email-already-in-use') {
+                    setErr('emailError', 'Этот email уже зарегистрирован. Войдите в аккаунт.');
+                } else {
+                    setErr('emailError', 'Ошибка регистрации: ' + err.message);
+                }
             }
         });
 
@@ -293,7 +291,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // --- 2. СТРАНИЦА ВХОДА И СБРОСА ПАРОЛЯ (login.html) ---
+    // --- 2. ВХОД И СБРОС ПАРОЛЯ ЧЕРЕЗ FIREBASE AUTH (login.html) ---
     const loginForm = document.getElementById('loginForm');
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
@@ -303,28 +301,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             const loginError = document.getElementById('loginError');
             if (loginError) loginError.textContent = '';
 
-            const userKey = emailToKey(cleanEmail);
-            const passSnap = await db.ref(`user_passwords/${userKey}`).once('value');
-            const passRecord = passSnap.val();
-
-            if (!passRecord) {
-                if (loginError) loginError.textContent = 'Аккаунт с такой почтой не найден.';
-                return;
-            }
-
-            const decryptedPassword = await decryptText(passRecord);
-            if (decryptedPassword === passwordInput) {
+            try {
+                await auth.signInWithEmailAndPassword(cleanEmail, passwordInput);
                 localStorage.setItem('activeUserEmail', cleanEmail);
                 window.location.href = 'account.html';
-            } else if (loginError) {
-                loginError.textContent = 'Неверный пароль.';
+            } catch (err) {
+                if (loginError) {
+                    loginError.textContent = 'Неверный email или пароль.';
+                }
             }
         });
 
         const forgotLink = document.getElementById('forgotPasswordLink');
         const resetBox = document.getElementById('resetBox');
         const sendResetCodeBtn = document.getElementById('sendResetCodeBtn');
-        const confirmResetBtn = document.getElementById('confirmResetBtn');
 
         if (forgotLink && resetBox) {
             forgotLink.addEventListener('click', (e) => {
@@ -338,63 +328,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const cleanEmail = document.getElementById('loginEmail').value.trim().toLowerCase();
                 const statusEl = document.getElementById('resetStatus');
                 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-                    statusEl.textContent = 'Укажите корректный Email в поле входа выше.';
+                    statusEl.style.color = '#d93838';
+                    statusEl.textContent = 'Сначала введите ваш корректный Email в поле входа выше.';
                     return;
                 }
 
-                const userKey = emailToKey(cleanEmail);
-                const profileSnap = await db.ref(`user_profiles/${userKey}`).once('value');
-                if (!profileSnap.exists()) {
-                    statusEl.textContent = 'Пользователь с таким Email не найден.';
-                    return;
+                try {
+                    await auth.sendPasswordResetEmail(cleanEmail);
+                    statusEl.style.color = '#16a34a';
+                    statusEl.textContent = `Письмо со ссылкой для сброса пароля отправлено на ${cleanEmail}. Проверьте «Входящие» и «Спам».`;
+                } catch (err) {
+                    statusEl.style.color = '#d93838';
+                    if (err.code === 'auth/user-not-found') {
+                        statusEl.textContent = 'Аккаунт с таким Email не найден.';
+                    } else {
+                        statusEl.textContent = 'Ошибка отправки: ' + err.message;
+                    }
                 }
-
-                const code = String(Math.floor(100000 + Math.random() * 900000));
-                const encryptedCode = await encryptText(code);
-
-                await db.ref(`password_resets/${userKey}`).set({
-                    cipher: encryptedCode.cipher,
-                    iv: encryptedCode.iv,
-                    expiresAt: Date.now() + 15 * 60 * 1000
-                });
-
-                document.getElementById('resetConfirmStep').style.display = 'block';
-                statusEl.textContent = `Код сброса сгенерирован и привязан к ${cleanEmail} (код для проверки: ${code}).`;
-            });
-        }
-
-        if (confirmResetBtn) {
-            confirmResetBtn.addEventListener('click', async () => {
-                const cleanEmail = document.getElementById('loginEmail').value.trim().toLowerCase();
-                const codeVal = document.getElementById('resetCodeInput').value.trim();
-                const newPassVal = document.getElementById('newVerifyPassword').value;
-                const statusEl = document.getElementById('resetStatus');
-
-                if (!strongPasswordRegex.test(newPassVal)) {
-                    statusEl.textContent = 'Пароль: от 8 символов, заглавная и строчная буквы, цифра.';
-                    return;
-                }
-
-                const userKey = emailToKey(cleanEmail);
-                const resetSnap = await db.ref(`password_resets/${userKey}`).once('value');
-                const resetRecord = resetSnap.val();
-
-                if (!resetRecord || Date.now() > resetRecord.expiresAt) {
-                    statusEl.textContent = 'Срок действия кода истёк или код не запрашивался.';
-                    return;
-                }
-
-                const decryptedCode = await decryptText(resetRecord);
-                if (decryptedCode !== codeVal) {
-                    statusEl.textContent = 'Неверный код подтверждения.';
-                    return;
-                }
-
-                const newEncryptedPass = await encryptText(newPassVal);
-                await db.ref(`user_passwords/${userKey}`).set(newEncryptedPass);
-                await db.ref(`password_resets/${userKey}`).remove();
-
-                statusEl.textContent = 'Пароль успешно зашифрован и обновлён! Войдите с новым паролем.';
             });
         }
     }
@@ -405,8 +355,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ticketHistory = document.getElementById('ticketHistory');
 
     if (accName && accEmail && ticketHistory) {
-        const activeEmail = localStorage.getItem('activeUserEmail');
-        if (!activeEmail) {
+        const currentUser = await waitForAuthUser();
+        const activeEmail = (currentUser && currentUser.email) || localStorage.getItem('activeUserEmail');
+        if (!currentUser && !activeEmail) {
             window.location.href = 'login.html';
             return;
         }
@@ -429,6 +380,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             accEmail.textContent = profile.email || activeEmail;
             const accPhone = document.getElementById('accPhone');
             if (accPhone) accPhone.textContent = profile.phone || '—';
+        } else {
+            accEmail.textContent = activeEmail;
         }
 
         const accCard = document.getElementById('accCard');
@@ -455,7 +408,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const codeVal = document.getElementById('adminCodeInput').value.trim();
                 const msgEl = document.getElementById('adminCodeMsg');
                 if (codeVal === ADMIN_ACTIVATION_CODE) {
-                    await db.ref(`user_roles/${userKey}`).set({ isAdmin: true });
+                    await db.ref(`user_roles/${userKey}`).update({ isAdmin: true });
                     applyAdminUI();
                 } else if (msgEl) {
                     msgEl.textContent = 'Неверный код доступа.';
@@ -480,7 +433,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- 4. АДМИН-КОНСОЛЬ (admin-console.html) ---
     const adminConsolePanel = document.getElementById('adminConsolePanel');
     if (adminConsolePanel) {
-        const activeEmail = localStorage.getItem('activeUserEmail');
+        const currentUser = await waitForAuthUser();
+        const activeEmail = (currentUser && currentUser.email) || localStorage.getItem('activeUserEmail');
         const userKey = activeEmail ? emailToKey(activeEmail) : null;
         const roleSnap = userKey ? await db.ref(`user_roles/${userKey}`).once('value') : null;
         const isAdmin = roleSnap && roleSnap.val() && roleSnap.val().isAdmin === true;
@@ -530,21 +484,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // --- 5. ФИЛЬТР ГОРОДОВ И ВЫХОД ---
-    const cityFilter = document.getElementById('cityFilter');
-    if (cityFilter) {
-        cityFilter.addEventListener('change', (e) => {
-            const selectedCity = e.target.value;
-            document.querySelectorAll('.concert-table tbody tr').forEach(row => {
-                const rowCity = row.getAttribute('data-city');
-                row.style.display = (selectedCity === 'all' || rowCity === selectedCity) ? '' : 'none';
-            });
-        });
-    }
-
+    // --- 5. ВЫХОД ---
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
+        logoutBtn.addEventListener('click', async () => {
+            await auth.signOut();
             localStorage.removeItem('activeUserEmail');
             window.location.href = 'login.html';
         });
