@@ -10,9 +10,9 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
-
     <header class="header">
-        <button class="burger-btn" id="burgerBtn" aria-label="Открыть меню">☰</button>
+        <a href="index.html" class="brand-title">Rick Astley Live</a>
+        <button type="button" class="burger-btn" id="burgerBtn" aria-label="Открыть меню">☰</button>
         <div class="mobile-menu" id="mobileMenu">
             <nav>
                 <a href="index.html">Главная</a>
@@ -25,40 +25,40 @@
     </header>
 
     <main class="main-container">
-        <section class="form-section" style="max-width: 450px; margin: 40px auto; padding: 30px; background: #fff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-            <h1 style="text-align: center; margin-bottom: 20px; font-size: 24px;">Вход в личный кабинет</h1>
-            
+        <section style="max-width: 450px; margin: 16px auto; padding: 28px; background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.07);">
+            <h1 style="text-align: center; margin-bottom: 18px; font-size: 1.5rem;">Вход в аккаунт</h1>
+
             <form id="loginForm">
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="loginEmail" style="display: block; margin-bottom: 5px; font-weight: bold;">Email:</label>
-                    <input type="email" id="loginEmail" autocomplete="email" required placeholder="name@example.com" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;">
+                <div class="form-group">
+                    <label for="loginEmail">Email:</label>
+                    <input type="email" id="loginEmail" autocomplete="email" required placeholder="name@example.com">
                 </div>
 
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label for="loginPassword" style="display: block; margin-bottom: 5px; font-weight: bold;">Пароль:</label>
+                <div class="form-group">
+                    <label for="loginPassword">Пароль:</label>
                     <div style="display: flex; gap: 8px;">
-                        <input type="password" id="loginPassword" autocomplete="current-password" required placeholder="Введите ваш пароль" oncopy="return false;" style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px;">
-                        <button type="button" id="toggleLoginPassBtn" title="Показать или скрыть пароль" style="padding: 0 12px; border: 1px solid #ccc; border-radius: 6px; background: #f4f5fa; cursor: pointer;">👁</button>
+                        <input type="password" id="loginPassword" autocomplete="current-password" required placeholder="Введите пароль" oncopy="return false;">
+                        <button type="button" id="toggleLoginPassBtn" class="btn-secondary" style="padding: 0 12px;">👁</button>
                     </div>
                 </div>
 
-                <div id="loginError" style="color: #d93838; margin-bottom: 15px; text-align: center; font-size: 14px;"></div>
+                <div id="loginError" class="error-message" style="text-align: center; margin-bottom: 10px;"></div>
 
-                <button type="submit" class="submit-btn" style="width: 100%; padding: 12px; background-color: #1a56db; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer;">Войти</button>
+                <button type="submit" class="submit-btn" style="width: 100%;">Войти</button>
             </form>
 
             <p style="text-align: center; margin-top: 14px;">
-                <a href="#" id="forgotPasswordLink" style="color: #1a56db; text-decoration: none; font-size: 14px;">Забыли пароль / Сменить через почту</a>
+                <a href="#" id="forgotPasswordLink" style="color: var(--accent-color); font-size: 0.9rem; font-weight: 600;">Забыли пароль / Сбросить через почту</a>
             </p>
 
-            <div id="resetBox" style="display: none; margin-top: 15px; padding: 15px; background: #f4f5fa; border-radius: 8px; border: 1px solid #d5d9eb;">
-                <p style="font-size: 13px; margin-bottom: 10px;">Укажите ваш Email в поле входа выше — Firebase отправит письмо со ссылкой для сброса пароля:</p>
-                <button type="button" id="sendResetCodeBtn" style="padding: 8px 14px; background: #2b70ff; color: #fff; border: none; border-radius: 5px; cursor: pointer;">Отправить письмо для сброса</button>
-                <div id="resetStatus" style="font-size: 13px; margin-top: 8px; color: #1a56db; word-break: break-word;"></div>
+            <div id="resetBox" style="display: none; margin-top: 14px; padding: 14px; background: #f3f4f6; border-radius: 8px;">
+                <p style="font-size: 0.85rem; margin-bottom: 10px;">Укажите Email в поле выше — Firebase отправит письмо со ссылкой для сброса пароля:</p>
+                <button type="button" id="sendResetCodeBtn" class="btn-primary" style="padding: 8px 14px; font-size: 0.88rem;">Отправить письмо</button>
+                <div id="resetStatus" style="font-size: 0.85rem; margin-top: 8px; word-break: break-word;"></div>
             </div>
-            
-            <p style="text-align: center; margin-top: 20px;">
-                Нет аккаунта? <a href="register.html" style="color: #1a56db; text-decoration: none;">Зарегистрироваться</a>
+
+            <p style="text-align: center; margin-top: 18px;">
+                Нет аккаунта? <a href="register.html" style="color: var(--accent-color); font-weight: 600;">Зарегистрироваться</a>
             </p>
         </section>
     </main>
@@ -68,12 +68,5 @@
     </footer>
 
     <script src="js/script.js"></script>
-    <script>
-        document.getElementById('toggleLoginPassBtn')?.addEventListener('click', () => {
-            const input = document.getElementById('loginPassword');
-            if (!input) return;
-            input.type = input.type === 'password' ? 'text' : 'password';
-        });
-    </script>
 </body>
 </html>
