@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход - Rick Astley Live</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+</head>
+<body>
+
+    <header class="header">
+        <button class="burger-btn" id="burgerBtn" aria-label="Открыть меню">☰</button>
+        <div class="mobile-menu" id="mobileMenu">
+            <nav>
+                <a href="index.html">Главная</a>
+                <a href="prices.html">Цены и концерты</a>
+                <a href="register.html">Регистрация</a>
+                <a href="account.html">Личный кабинет</a>
+                <a href="login.html">Вход</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <section class="form-section" style="max-width: 450px; margin: 40px auto; padding: 30px; background: #fff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <h1 style="text-align: center; margin-bottom: 20px; font-size: 24px;">Вход в личный кабинет</h1>
+            
+            <form id="loginForm">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="loginEmail" style="display: block; margin-bottom: 5px; font-weight: bold;">Email:</label>
+                    <input type="email" id="loginEmail" required placeholder="Введите ваш email" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label for="loginPassword" style="display: block; margin-bottom: 5px; font-weight: bold;">Пароль верификации:</label>
+                    <input type="password" id="loginPassword" required placeholder="Введите ваш пароль" oncopy="return false;" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;">
+                </div>
+
+                <div id="loginError" style="color: #d93838; margin-bottom: 15px; text-align: center; font-size: 14px;"></div>
+
+                <button type="submit" class="submit-btn" style="width: 100%; padding: 12px; background-color: #1a56db; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer;">Войти</button>
+            </form>
+
+            <p style="text-align: center; margin-top: 14px;">
+                <a href="#" id="forgotPasswordLink" style="color: #1a56db; text-decoration: none; font-size: 14px;">Забыли пароль / Сменить через почту</a>
+            </p>
+
+            <div id="resetBox" style="display: none; margin-top: 15px; padding: 15px; background: #f4f5fa; border-radius: 8px; border: 1px solid #d5d9eb;">
+                <p style="font-size: 13px; margin-bottom: 10px;">Введите ваш Email выше и получите одноразовый код для сброса пароля:</p>
+                <button type="button" id="sendResetCodeBtn" style="padding: 8px 14px; background: #2b70ff; color: #fff; border: none; border-radius: 5px; cursor: pointer;">Получить код на почту</button>
+                <div id="resetStatus" style="font-size: 13px; margin-top: 8px; color: #1a56db; word-break: break-word;"></div>
+
+                <div id="resetConfirmStep" style="display: none; margin-top: 12px;">
+                    <input type="text" id="resetCodeInput" placeholder="6-значный код" style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 5px;">
+                    <input type="password" id="newVerifyPassword" placeholder="Новый пароль (мин. 6 символов)" oncopy="return false;" style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 5px;">
+                    <button type="button" id="confirmResetBtn" style="padding: 8px 14px; background: #16a34a; color: #fff; border: none; border-radius: 5px; cursor: pointer;">Обновить пароль</button>
+                </div>
+            </div>
+            
+            <p style="text-align: center; margin-top: 20px;">
+                Нет аккаунта? <a href="register.html" style="color: #1a56db; text-decoration: none;">Зарегистрироваться</a>
+            </p>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p><a href="index.html">&larr; На главную</a></p>
+    </footer>
+
+    <script src="js/script.js"></script>
+</body>
+</html>
