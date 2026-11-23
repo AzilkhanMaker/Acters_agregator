@@ -60,6 +60,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const mobileMenu = document.getElementById('mobileMenu');
     if (burgerBtn && mobileMenu) {
         burgerBtn.addEventListener('click', (e) => {
+            e.preventDefault();
             e.stopPropagation();
             mobileMenu.classList.toggle('active');
         });
@@ -73,11 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    document.querySelectorAll('.no-copy').forEach(el => {
-        el.addEventListener('copy', (e) => e.preventDefault());
-    });
-
-    // --- ШАБЛОНЫ И АВТОФОРМАТИРОВАНИЕ ВВОДА ---
+    // --- ШАБЛОНЫ И АВТОФОРМАТИРОВАНИЕ ---
     const phoneEl = document.getElementById('phone');
     phoneEl?.addEventListener('input', () => {
         let digits = phoneEl.value.replace(/\D/g, '');
@@ -116,7 +113,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             passHintEl.style.color = '#16a34a';
         } else {
             passHintEl.textContent = 'Нужно: от 8 символов, заглавная и строчная буквы, цифра';
-            passHintEl.style.color = '#d93838';
+            passHintEl.style.color = '#dc2626';
         }
     });
 
@@ -129,7 +126,109 @@ document.addEventListener('DOMContentLoaded', async () => {
         passInputEl?.dispatchEvent(new Event('input'));
     });
 
-    // --- 1. РЕГИСТРАЦИЯ (register.html) ---
+    // --- 1. СТРАНИЦА ЦЕН И ФИЛЬТРАЦИИ (prices.html) ---
+    const tbody = document.getElementById('concertsTableBody');
+    if (tbody) {
+        const cityFilter = document.getElementById('cityFilter');
+        const searchInput = document.getElementById('searchConcertInput');
+        const maxPriceRange = document.getElementById('maxPriceRange');
+        const maxPriceLabel = document.getElementById('maxPriceLabel');
+        const resetBtn = document.getElementById('resetFiltersBtn');
+        const noConcertsMsg = document.getElementById('noConcertsMsg');
+        const priceCards = document.querySelectorAll('.price-card');
+
+        try {
+            const [actorsSnap, concertsSnap, ticketsSnap] = await Promise.all([
+                db.ref('actors').once('value'),
+                db.ref('concerts').once('value'),
+                db.ref('tickets').once('value')
+            ]);
+            const actors = actorsSnap.val() || {};
+            const concerts = concertsSnap.val() || {};
+            const tickets = ticketsSnap.val() || {};
+
+            const availableByConcert = {};
+            Object.values(tickets).forEach(t => {
+                if (t.status === 'available' && t.concertId) {
+                    availableByConcert[t.concertId] = (availableByConcert[t.concertId] || 0) + 1;
+                }
+            });
+
+            Object.entries(concerts).forEach(([concertId, c]) => {
+                const actorName = (actors[c.actorId] && actors[c.actorId].name) || 'Артист';
+                const cityLower = (c.city || '').toLowerCase();
+                let citySlug = 'other';
+                if (cityLower.includes('астан')) citySlug = 'astana';
+                else if (cityLower.includes('алмат')) citySlug = 'almaty';
+                else if (cityLower.includes('усть-каменогорск') || cityLower.includes('өскемен')) citySlug = 'ust-kamenogorsk';
+
+                const numericPrice = Number(c.price || 0);
+                const freeCount = availableByConcert[concertId] ?? (c.totalTickets || '—');
+
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-city', citySlug);
+                tr.setAttribute('data-price', String(numericPrice));
+                tr.innerHTML = `
+                    <td>${actorName}</td>
+                    <td>${c.city || '—'}</td>
+                    <td>${c.date || '—'}</td>
+                    <td>${numericPrice.toLocaleString()} ₸</td>
+                    <td>${freeCount}</td>
+                    <td><a href="register.html?buy=1&price=${numericPrice}" class="table-btn">Выбрать</a></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (e) {
+            console.warn('Не удалось подгрузить концерты из БД:', e);
+        }
+
+        function applyAllFilters() {
+            const selectedCity = cityFilter ? cityFilter.value : 'all';
+            const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+            const maxPrice = maxPriceRange ? Number(maxPriceRange.value) : Infinity;
+
+            if (maxPriceLabel && maxPriceRange) {
+                maxPriceLabel.textContent = Number(maxPriceRange.value).toLocaleString();
+            }
+
+            let visibleCount = 0;
+            tbody.querySelectorAll('tr').forEach(row => {
+                const rowCity = row.getAttribute('data-city') || 'other';
+                const rowPrice = Number(row.getAttribute('data-price') || 0);
+                const rowText = row.textContent.toLowerCase();
+
+                const show = (selectedCity === 'all' || rowCity === selectedCity)
+                    && rowPrice <= maxPrice
+                    && (!query || rowText.includes(query));
+
+                row.style.display = show ? '' : 'none';
+                if (show) visibleCount++;
+            });
+
+            if (noConcertsMsg) {
+                noConcertsMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+            }
+
+            priceCards.forEach(card => {
+                const cardPrice = Number(card.getAttribute('data-card-price') || 0);
+                card.style.opacity = cardPrice <= maxPrice ? '1' : '0.4';
+            });
+        }
+
+        cityFilter?.addEventListener('change', applyAllFilters);
+        searchInput?.addEventListener('input', applyAllFilters);
+        maxPriceRange?.addEventListener('input', applyAllFilters);
+        resetBtn?.addEventListener('click', () => {
+            if (cityFilter) cityFilter.value = 'all';
+            if (searchInput) searchInput.value = '';
+            if (maxPriceRange) maxPriceRange.value = '35000';
+            applyAllFilters();
+        });
+
+        applyAllFilters();
+    }
+
+    // --- 2. РЕГИСТРАЦИЯ (register.html) ---
     const registerForm = document.getElementById('registerForm');
     if (registerForm) {
         const buyToggle = document.getElementById('buyTicketToggle');
@@ -142,45 +241,57 @@ document.addEventListener('DOMContentLoaded', async () => {
         const summaryCount = document.getElementById('summaryCount');
         const summaryTotal = document.getElementById('summaryTotal');
 
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('buy') === '1' && buyToggle && purchaseSection) {
+            buyToggle.checked = true;
+            purchaseSection.style.display = 'block';
+            submitBtn.textContent = 'Зарегистрироваться и оплатить';
+        }
+
         if (concertSelect) {
-            const [actorsSnap, concertsSnap] = await Promise.all([
-                db.ref('actors').once('value'),
-                db.ref('concerts').once('value')
-            ]);
-            const actors = actorsSnap.val() || {};
-            const concerts = concertsSnap.val() || {};
-            Object.entries(concerts).forEach(([id, c]) => {
-                const actorName = (actors[c.actorId] && actors[c.actorId].name) || 'Артист';
-                const opt = document.createElement('option');
-                opt.value = id;
-                opt.setAttribute('data-base-price', c.price || 12000);
-                opt.textContent = `${actorName} — ${c.city} (${c.date})`;
-                concertSelect.appendChild(opt);
-            });
+            try {
+                const [actorsSnap, concertsSnap] = await Promise.all([
+                    db.ref('actors').once('value'),
+                    db.ref('concerts').once('value')
+                ]);
+                const actors = actorsSnap.val() || {};
+                const concerts = concertsSnap.val() || {};
+                Object.entries(concerts).forEach(([id, c]) => {
+                    const actorName = (actors[c.actorId] && actors[c.actorId].name) || 'Артист';
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = `${actorName} — ${c.city} (${c.date})`;
+                    concertSelect.appendChild(opt);
+                });
+            } catch (e) {
+                console.warn('Ошибка загрузки списка концертов:', e);
+            }
         }
 
         function updateSummary() {
             const selectedRadio = document.querySelector('input[name="ticketType"]:checked');
             if (!selectedRadio || !summaryTotal) return;
             const price = parseInt(selectedRadio.getAttribute('data-price'), 10);
-            const count = parseInt(ticketCountInput.value, 10) || 1;
+            const count = Math.max(1, parseInt(ticketCountInput.value, 10) || 1);
             const labelText = selectedRadio.parentElement.textContent.split('—')[0].trim();
             summaryCategory.textContent = labelText;
             summaryCount.textContent = count;
             summaryTotal.textContent = (price * count).toLocaleString();
         }
 
-        if (buyToggle && purchaseSection) {
-            buyToggle.addEventListener('change', () => {
+        buyToggle?.addEventListener('change', () => {
+            if (purchaseSection) {
                 purchaseSection.style.display = buyToggle.checked ? 'block' : 'none';
+            }
+            if (submitBtn) {
                 submitBtn.textContent = buyToggle.checked
                     ? 'Зарегистрироваться и оплатить'
                     : 'Зарегистрироваться';
-            });
-        }
+            }
+        });
 
         radioButtons.forEach(r => r.addEventListener('change', updateSummary));
-        if (ticketCountInput) ticketCountInput.addEventListener('input', updateSummary);
+        ticketCountInput?.addEventListener('input', updateSummary);
         updateSummary();
 
         const modal = document.getElementById('successModal');
@@ -212,15 +323,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (pass1 !== pass2) setErr('verifyPasswordConfirmError', 'Пароли не совпадают');
 
-            const withTicket = buyToggle && buyToggle.checked;
+            const withTicket = Boolean(buyToggle && buyToggle.checked);
             let cardClean = '';
             if (withTicket) {
                 cardClean = document.getElementById('cardNumber').value.replace(/\s+/g, '');
                 const expiry = document.getElementById('cardExpiry').value.trim();
                 const cvc = document.getElementById('cardCvc').value.trim();
-                if (!/^\d{16}$/.test(cardClean)) setErr('cardError', 'Введите ровно 16 цифр номера карты');
+                if (!/^\d{16}$/.test(cardClean)) setErr('cardError', 'Введите 16 цифр номера карты');
                 if (!/^\d{2}\/\d{2}$/.test(expiry)) setErr('expiryError', 'Формат: ММ/ГГ');
-                if (!/^\d{3}$/.test(cvc)) setErr('cvcError', 'CVC должен содержать 3 цифры');
+                if (!/^\d{3}$/.test(cvc)) setErr('cvcError', 'Введите 3 цифры CVC');
             }
 
             if (!isValid) return;
@@ -234,7 +345,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     uid,
                     name: fullname,
                     email: cleanEmail,
-                    phone: phone,
+                    phone,
                     createdAt: new Date().toISOString()
                 });
 
@@ -256,44 +367,48 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     const selectedRadio = document.querySelector('input[name="ticketType"]:checked');
                     const categoryName = selectedRadio.parentElement.textContent.split('—')[0].trim();
-                    const selectedConcertText = concertSelect ? concertSelect.options[concertSelect.selectedIndex].text : 'Rick Astley Live';
+                    const concertTitle = concertSelect ? concertSelect.options[concertSelect.selectedIndex].text : 'Rick Astley Live';
 
-                    const newOrderRef = db.ref('orders').push();
-                    await newOrderRef.set({
+                    await db.ref('orders').push().set({
                         userKey,
                         uid,
                         email: cleanEmail,
-                        concertTitle: selectedConcertText,
+                        concertTitle,
                         ticketCategory: categoryName,
-                        ticketCount: Number(ticketCountInput.value) || 1,
+                        ticketCount: Math.max(1, Number(ticketCountInput.value) || 1),
                         totalPrice: summaryTotal.textContent,
                         date: new Date().toLocaleDateString()
                     });
                 }
 
                 localStorage.setItem('activeUserEmail', cleanEmail);
-                modal.classList.add('active');
+                modal?.classList.add('active');
             } catch (err) {
                 console.error(err);
                 if (err.code === 'auth/email-already-in-use') {
-                    setErr('emailError', 'Этот email уже зарегистрирован. Войдите в аккаунт.');
+                    setErr('emailError', 'Этот email уже зарегистрирован. Перейдите на страницу входа.');
                 } else {
                     setErr('emailError', 'Ошибка регистрации: ' + err.message);
                 }
             }
         });
 
-        if (closeModal) {
-            closeModal.addEventListener('click', () => {
-                modal.classList.remove('active');
-                window.location.href = 'account.html';
-            });
-        }
+        closeModal?.addEventListener('click', () => {
+            modal?.classList.remove('active');
+            window.location.href = 'account.html';
+        });
     }
 
-    // --- 2. ВХОД И СБРОС ПАРОЛЯ ЧЕРЕЗ FIREBASE AUTH (login.html) ---
+    // --- 3. ВХОД И СБРОС ПАРОЛЯ (login.html) ---
     const loginForm = document.getElementById('loginForm');
     if (loginForm) {
+        document.getElementById('toggleLoginPassBtn')?.addEventListener('click', () => {
+            const input = document.getElementById('loginPassword');
+            if (input) {
+                input.type = input.type === 'password' ? 'text' : 'password';
+            }
+        });
+
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const cleanEmail = document.getElementById('loginEmail').value.trim().toLowerCase();
@@ -306,9 +421,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.setItem('activeUserEmail', cleanEmail);
                 window.location.href = 'account.html';
             } catch (err) {
-                if (loginError) {
-                    loginError.textContent = 'Неверный email или пароль.';
-                }
+                if (loginError) loginError.textContent = 'Неверный email или пароль.';
             }
         });
 
@@ -316,40 +429,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         const resetBox = document.getElementById('resetBox');
         const sendResetCodeBtn = document.getElementById('sendResetCodeBtn');
 
-        if (forgotLink && resetBox) {
-            forgotLink.addEventListener('click', (e) => {
-                e.preventDefault();
+        forgotLink?.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (resetBox) {
                 resetBox.style.display = resetBox.style.display === 'none' ? 'block' : 'none';
-            });
-        }
+            }
+        });
 
-        if (sendResetCodeBtn) {
-            sendResetCodeBtn.addEventListener('click', async () => {
-                const cleanEmail = document.getElementById('loginEmail').value.trim().toLowerCase();
-                const statusEl = document.getElementById('resetStatus');
-                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-                    statusEl.style.color = '#d93838';
-                    statusEl.textContent = 'Сначала введите ваш корректный Email в поле входа выше.';
-                    return;
-                }
+        sendResetCodeBtn?.addEventListener('click', async () => {
+            const cleanEmail = document.getElementById('loginEmail').value.trim().toLowerCase();
+            const statusEl = document.getElementById('resetStatus');
+            if (!statusEl) return;
 
-                try {
-                    await auth.sendPasswordResetEmail(cleanEmail);
-                    statusEl.style.color = '#16a34a';
-                    statusEl.textContent = `Письмо со ссылкой для сброса пароля отправлено на ${cleanEmail}. Проверьте «Входящие» и «Спам».`;
-                } catch (err) {
-                    statusEl.style.color = '#d93838';
-                    if (err.code === 'auth/user-not-found') {
-                        statusEl.textContent = 'Аккаунт с таким Email не найден.';
-                    } else {
-                        statusEl.textContent = 'Ошибка отправки: ' + err.message;
-                    }
-                }
-            });
-        }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = 'Сначала введите корректный Email в поле входа выше.';
+                return;
+            }
+
+            try {
+                await auth.sendPasswordResetEmail(cleanEmail);
+                statusEl.style.color = '#16a34a';
+                statusEl.textContent = `Письмо отправлено на ${cleanEmail}. Проверьте «Входящие» и «Спам».`;
+            } catch (err) {
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = err.code === 'auth/user-not-found'
+                    ? 'Пользователь с таким Email не найден.'
+                    : 'Ошибка отправки: ' + err.message;
+            }
+        });
     }
 
-    // --- 3. ЛИЧНЫЙ КАБИНЕТ (account.html) ---
+    // --- 4. ЛИЧНЫЙ КАБИНЕТ (account.html) ---
     const accName = document.getElementById('accName');
     const accEmail = document.getElementById('accEmail');
     const ticketHistory = document.getElementById('ticketHistory');
@@ -375,19 +486,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const role = roleSnap.val();
         const orders = ordersSnap.val();
 
-        if (profile) {
-            accName.textContent = profile.name || '—';
-            accEmail.textContent = profile.email || activeEmail;
-            const accPhone = document.getElementById('accPhone');
-            if (accPhone) accPhone.textContent = profile.phone || '—';
-        } else {
-            accEmail.textContent = activeEmail;
-        }
+        accName.textContent = (profile && profile.name) || '—';
+        accEmail.textContent = (profile && profile.email) || activeEmail;
+        const accPhone = document.getElementById('accPhone');
+        if (accPhone) accPhone.textContent = (profile && profile.phone) || '—';
 
         const accCard = document.getElementById('accCard');
-        if (accCard && card && card.masked) {
-            accCard.textContent = card.masked;
-        }
+        if (accCard && card && card.masked) accCard.textContent = card.masked;
 
         const applyAdminUI = () => {
             const badge = document.getElementById('adminBadge');
@@ -398,49 +503,47 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (accessSection) accessSection.style.display = 'none';
         };
 
-        if (role && role.isAdmin === true) {
-            applyAdminUI();
-        }
+        if (role && role.isAdmin === true) applyAdminUI();
 
-        const activateAdminBtn = document.getElementById('activateAdminBtn');
-        if (activateAdminBtn) {
-            activateAdminBtn.addEventListener('click', async () => {
-                const codeVal = document.getElementById('adminCodeInput').value.trim();
-                const msgEl = document.getElementById('adminCodeMsg');
-                if (codeVal === ADMIN_ACTIVATION_CODE) {
-                    await db.ref(`user_roles/${userKey}`).update({ isAdmin: true });
-                    applyAdminUI();
-                } else if (msgEl) {
-                    msgEl.textContent = 'Неверный код доступа.';
-                }
-            });
-        }
+        document.getElementById('activateAdminBtn')?.addEventListener('click', async () => {
+            const codeVal = document.getElementById('adminCodeInput').value.trim();
+            const msgEl = document.getElementById('adminCodeMsg');
+            if (codeVal === ADMIN_ACTIVATION_CODE) {
+                await db.ref(`user_roles/${userKey}`).set({
+                    uid: currentUser ? currentUser.uid : null,
+                    isAdmin: true
+                });
+                applyAdminUI();
+            } else if (msgEl) {
+                msgEl.textContent = 'Неверный код доступа.';
+            }
+        });
 
         if (orders) {
             ticketHistory.innerHTML = Object.entries(orders).map(([id, o]) => `
-                <div style="border-bottom: 1px solid #d5d9eb; padding-bottom: 10px; margin-bottom: 10px;">
+                <div style="border-bottom: 1px solid #d1d5db; padding-bottom: 10px; margin-bottom: 10px;">
                     <p>🎫 <strong>${o.concertTitle || 'Rick Astley Live'}</strong></p>
-                    <p>ID заказа: <code>${id}</code></p>
+                    <p>ID: <code>${id}</code></p>
                     <p>Категория: ${o.ticketCategory} (${o.ticketCount} шт.)</p>
                     <p>Сумма: <strong>${o.totalPrice} ₸</strong> | Дата: ${o.date}</p>
                 </div>
             `).join('');
         } else {
-            ticketHistory.innerHTML = `<p style="color: #666;">У вас пока нет купленных билетов. <a href="prices.html">Выбрать концерт</a></p>`;
+            ticketHistory.innerHTML = `<p style="color: #4b5563;">Заказов пока нет. <a href="prices.html" style="color: var(--accent-color);">Выбрать билет</a></p>`;
         }
     }
 
-    // --- 4. АДМИН-КОНСОЛЬ (admin-console.html) ---
+    // --- 5. АДМИН-КОНСОЛЬ (admin-console.html) ---
     const adminConsolePanel = document.getElementById('adminConsolePanel');
     if (adminConsolePanel) {
         const currentUser = await waitForAuthUser();
         const activeEmail = (currentUser && currentUser.email) || localStorage.getItem('activeUserEmail');
         const userKey = activeEmail ? emailToKey(activeEmail) : null;
         const roleSnap = userKey ? await db.ref(`user_roles/${userKey}`).once('value') : null;
-        const isAdmin = roleSnap && roleSnap.val() && roleSnap.val().isAdmin === true;
+        const isAdmin = Boolean(roleSnap && roleSnap.val() && roleSnap.val().isAdmin === true);
 
         if (!isAdmin) {
-            adminConsolePanel.innerHTML = '<p style="color:#d93838;font-weight:bold;">Доступ запрещён. У вашего аккаунта нет прав администратора.</p>';
+            adminConsolePanel.innerHTML = '<p style="color:#dc2626;font-weight:700;">Доступ запрещён. Активируйте права администратора в личном кабинете.</p>';
         } else {
             const actorSelect = document.getElementById('concertActorSelect');
             const refreshActors = async () => {
@@ -458,7 +561,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await db.ref('actors').push({ name, createdAt: Date.now() });
                 document.getElementById('actorNameInput').value = '';
                 await refreshActors();
-                alert('Актёр добавлен.');
+                alert('Артист добавлен.');
             });
 
             document.getElementById('createConcertForm')?.addEventListener('submit', async (e) => {
@@ -479,18 +582,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                         status: 'available'
                     });
                 }
-                alert('Концерт и партия билетов созданы.');
+                alert('Концерт и билеты созданы.');
             });
         }
     }
 
-    // --- 5. ВЫХОД ---
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async () => {
+    // --- 6. ВЫХОД ---
+    document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+        try {
             await auth.signOut();
-            localStorage.removeItem('activeUserEmail');
-            window.location.href = 'login.html';
-        });
-    }
+        } catch (e) {
+            console.warn(e);
+        }
+        localStorage.removeItem('activeUserEmail');
+        window.location.href = 'login.html';
+    });
 });
